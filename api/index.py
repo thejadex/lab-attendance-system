@@ -22,7 +22,9 @@ except Exception:
     except Exception:
         psycopg2 = None
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(__file__)
+TEMPLATES_DIR = os.path.normpath(os.path.join(BASE_DIR, '..', 'templates'))
+app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
 # Get secret key from environment variable
 app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-change-in-production')
@@ -105,6 +107,10 @@ def format_time_12hr(time_str):
         return time_str
 
 app.jinja_env.filters['format_time_12hr'] = format_time_12hr
+
+@app.route('/health')
+def health():
+    return 'ok', 200
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
