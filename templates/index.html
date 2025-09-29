@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lab Attendance</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Added minimal but beautiful styling with grid layout */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #fafafa;
+            color: #333;
+        }
+        
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 32px;
+            text-align: center;
+        }
+        
+        .flash-messages {
+            background: #f0f0f0;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 32px;
+            border-left: 4px solid #333;
+        }
+        
+        .flash-messages p {
+            margin: 0;
+            font-size: 14px;
+        }
+        
+        /* Grid layout for forms */
+        .forms-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+        
+        @media (max-width: 768px) {
+            .forms-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .form-card {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .form-card h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-family: inherit;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #333;
+        }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        
+        button:hover {
+            background: #555;
+        }
+        
+        .records-section {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .records-section h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        th {
+            text-align: left;
+            padding: 12px;
+            background: #f5f5f5;
+            font-weight: 600;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tr:hover {
+            background: #fafafa;
+        }
+        
+        .no-records {
+            text-align: center;
+            color: #999;
+            padding: 32px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Lab Attendance System</h1>
+    
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div class="flash-messages">
+                {% for message in messages %}
+                    <p>{{ message }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+    
+    <!-- Forms in grid layout -->
+    <div class="forms-grid">
+        <!-- Clock In Form -->
+        <div class="form-card">
+            <h2>Clock In</h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="clock_in">
+                
+                <label for="clock_in_matric">Matric No.</label>
+                <input type="text" id="clock_in_matric" name="matric_no" required>
+                
+                <label for="clock_in_name">Name</label>
+                <input type="text" id="clock_in_name" name="name" required>
+                
+                <button type="submit">Clock In</button>
+            </form>
+        </div>
+        
+        <!-- Clock Out Form - removed name field -->
+        <div class="form-card">
+            <h2>Clock Out</h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="clock_out">
+                
+                <label for="clock_out_matric">Matric No.</label>
+                <input type="text" id="clock_out_matric" name="matric_no" required>
+                
+                <button type="submit">Clock Out</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Records Table -->
+    <div class="records-section">
+        <h2>All Records</h2>
+        
+        {% if records %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Matric No.</th>
+                        <th>Name</th>
+                        <th>Date</th>
+                        <th>Clock In</th>
+                        <th>Clock Out</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records %}
+                    <tr>
+                        <td>{{ record.matric_no }}</td>
+                        <td>{{ record.name }}</td>
+                        <td>{{ record.date }}</td>
+                        <!-- Format times in 12-hour format -->
+                        <td>{{ record.clock_in|format_time_12hr }}</td>
+                        <td>{{ record.clock_out|format_time_12hr if record.clock_out else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="no-records">No records yet</p>
+        {% endif %}
+    </div>
+    
+</body>
+</html>
