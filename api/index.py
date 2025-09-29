@@ -3,7 +3,7 @@ Vercel-compatible Student Lab Attendance System
 A minimal Flask application for tracking student clock in/out times
 """
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash
 import os
 import sqlite3
 from datetime import datetime
@@ -153,15 +153,13 @@ def index():
         
         if action == 'clock_in' and (not matric_no or not name):
             flash('Please enter both Matric No and Name')
-            return redirect(url_for('index'))
+            return redirect(url_for('index', just='1'))
         elif action == 'clock_out' and not matric_no:
             flash('Please enter Matric No')
-            return redirect(url_for('index'))
+            return redirect(url_for('index', just='1'))
         
         try:
             conn = get_db_connection()
-            # Clear records if needed before starting a new session
-            maybe_clear_records(conn)
             cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
 
             if action == 'clock_in':
@@ -235,17 +233,14 @@ def index():
 
         except Exception as e:
             flash(f'Database error: {str(e)}')
-        
-    return redirect(url_for('index'))
+        return redirect(url_for('index', just='1'))
     
     # GET request - display the page with all records
     try:
         conn = get_db_connection()
-        # Fresh-per-browser: on first GET in a new browser session, clear then mark as seen
-        if CLEAR_MODE == 'always':
-            if not session.get('seen'):  # first visit in this browser
-                maybe_clear_records(conn)
-                session['seen'] = True
+        # Clear for fresh view unless this GET follows a POST redirect
+        if CLEAR_MODE == 'always' and request.args.get('just') != '1':
+            maybe_clear_records(conn)
         cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
         cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
         rows = cursor.fetchall()
