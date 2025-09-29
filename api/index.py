@@ -6,10 +6,21 @@ A minimal Flask application for tracking student clock in/out times
 from flask import Flask, render_template, request, redirect, url_for, flash
 import os
 import sqlite3
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from datetime import datetime
 import urllib.parse
+
+# Prefer psycopg (v3); fallback to psycopg2 if available
+USE_PG3 = False
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+    USE_PG3 = True
+except Exception:
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+    except Exception:
+        psycopg2 = None
 
 app = Flask(__name__)
 
@@ -26,16 +37,23 @@ def get_db_connection():
     - Else, fallback to SQLite at /tmp/attendance.db (ephemeral on Vercel)
     """
     if USE_POSTGRES:
-        url = urllib.parse.urlparse(DATABASE_URL)
-        conn = psycopg2.connect(
-            host=url.hostname,
-            port=url.port,
-            database=url.path[1:],  # Remove leading slash
-            user=url.username,
-            password=url.password,
-            cursor_factory=RealDictCursor
-        )
-        return conn
+        if USE_PG3:
+            # psycopg v3 supports direct URL
+            conn = psycopg.connect(DATABASE_URL)
+            return conn
+        elif psycopg2 is not None:
+            url = urllib.parse.urlparse(DATABASE_URL)
+            conn = psycopg2.connect(
+                host=url.hostname,
+                port=url.port,
+                database=url.path[1:],
+                user=url.username,
+                password=url.password,
+                cursor_factory=RealDictCursor
+            )
+            return conn
+        else:
+            raise RuntimeError("PostgreSQL driver not installed. Install psycopg[binary] or psycopg2-binary.")
     else:
         db_path = '/tmp/attendance.db'
         conn = sqlite3.connect(db_path)
@@ -46,8 +64,8 @@ def init_db():
     """Initialize the database with the attendance table"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
         if USE_POSTGRES:
+            cursor = conn.cursor() if not USE_PG3 else conn.cursor()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attendance (
                     id SERIAL PRIMARY KEY,
@@ -59,6 +77,7 @@ def init_db():
                 )
             ''')
         else:
+            cursor = conn.cursor()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attendance (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,18 +124,18 @@ def index():
         
         try:
             conn = get_db_connection()
-            cursor = conn.cursor()
+            cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
 
             if action == 'clock_in':
                 # Check if student already has an active session (clocked in but not out)
-                if USE_POSTGRES:
+                if USE_POSTGRES and not USE_PG3:
                     cursor.execute(
                         'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
                         (matric_no,)
                     )
                 else:
                     cursor.execute(
-                        'SELECT * FROM attendance WHERE matric_no = ? AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
+                        'SELECT * FROM attendance WHERE matric_no = ? AND clock_out IS NULL ORDER BY id DESC LIMIT 1' if not USE_POSTGRES else 'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
                         (matric_no,)
                     )
                 active_session = cursor.fetchone()
@@ -129,14 +148,14 @@ def index():
                     current_date = datetime.now().strftime('%Y-%m-%d')
                     current_time = datetime.now().strftime('%H:%M:%S')
 
-                    if USE_POSTGRES:
+                    if USE_POSTGRES and not USE_PG3:
                         cursor.execute(
                             'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (%s, %s, %s, %s)',
                             (matric_no, name, current_date, current_time)
                         )
                     else:
                         cursor.execute(
-                            'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (?, ?, ?, ?)',
+                            'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (?, ?, ?, ?)' if not USE_POSTGRES else 'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (%s, %s, %s, %s)',
                             (matric_no, name, current_date, current_time)
                         )
                     conn.commit()
@@ -145,14 +164,14 @@ def index():
 
             elif action == 'clock_out':
                 # Find the active session for this student
-                if USE_POSTGRES:
+                if USE_POSTGRES and not USE_PG3:
                     cursor.execute(
                         'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
                         (matric_no,)
                     )
                 else:
                     cursor.execute(
-                        'SELECT * FROM attendance WHERE matric_no = ? AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
+                        'SELECT * FROM attendance WHERE matric_no = ? AND clock_out IS NULL ORDER BY id DESC LIMIT 1' if not USE_POSTGRES else 'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
                         (matric_no,)
                     )
                 active_session = cursor.fetchone()
@@ -163,20 +182,12 @@ def index():
                     # Update the record with clock out time
                     current_time = datetime.now().strftime('%H:%M:%S')
 
-                    if USE_POSTGRES:
-                        rec_id = active_session['id']
-                        rec_name = active_session['name']
-                        cursor.execute(
-                            'UPDATE attendance SET clock_out = %s WHERE id = %s',
-                            (current_time, rec_id)
-                        )
+                    rec_id = active_session['id'] if isinstance(active_session, dict) else active_session['id']
+                    rec_name = active_session['name'] if isinstance(active_session, dict) else active_session['name']
+                    if USE_POSTGRES and not USE_PG3:
+                        cursor.execute('UPDATE attendance SET clock_out = %s WHERE id = %s', (current_time, rec_id))
                     else:
-                        rec_id = active_session['id'] if isinstance(active_session, dict) else active_session['id']
-                        rec_name = active_session['name'] if isinstance(active_session, dict) else active_session['name']
-                        cursor.execute(
-                            'UPDATE attendance SET clock_out = ? WHERE id = ?',
-                            (current_time, rec_id)
-                        )
+                        cursor.execute('UPDATE attendance SET clock_out = ? WHERE id = ?' if not USE_POSTGRES else 'UPDATE attendance SET clock_out = %s WHERE id = %s', (current_time, rec_id))
                     conn.commit()
                     formatted_time = format_time_12hr(current_time)
                     flash(f'Success: {rec_name} clocked out at {formatted_time}')
@@ -192,15 +203,14 @@ def index():
     # GET request - display the page with all records
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        if USE_POSTGRES:
-            cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
-            records = cursor.fetchall()
+        cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
+        cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
+        rows = cursor.fetchall()
+        # Normalize to list of dicts for template compatibility
+        if USE_POSTGRES and not USE_PG3:
+            records = rows  # already dict rows via RealDictCursor
         else:
-            cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
-            rows = cursor.fetchall()
-            # Convert sqlite3.Row to dict-like for template compatibility
-            records = [dict(row) for row in rows]
+            records = [dict(row) for row in rows] if rows and not isinstance(rows[0], dict) else rows
         cursor.close()
         conn.close()
     except Exception as e:
