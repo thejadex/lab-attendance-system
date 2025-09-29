@@ -3,7 +3,7 @@ Vercel-compatible Student Lab Attendance System
 A minimal Flask application for tracking student clock in/out times
 """
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 import os
 import sqlite3
 from datetime import datetime
@@ -236,11 +236,19 @@ def index():
         except Exception as e:
             flash(f'Database error: {str(e)}')
         
-        return redirect(url_for('index'))
+    # Prevent immediate clearing on the redirected GET so user sees the update
+    session['skip_clear_once'] = True
+    return redirect(url_for('index'))
     
     # GET request - display the page with all records
     try:
         conn = get_db_connection()
+        # If CLEAR_MODE is always, clear unless we're returning from a POST redirect in this session
+        if CLEAR_MODE == 'always':
+            if session.get('skip_clear_once'):
+                session.pop('skip_clear_once', None)
+            else:
+                maybe_clear_records(conn)
         cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
         cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
         rows = cursor.fetchall()
