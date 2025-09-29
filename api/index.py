@@ -236,19 +236,16 @@ def index():
         except Exception as e:
             flash(f'Database error: {str(e)}')
         
-    # Prevent immediate clearing on the redirected GET so user sees the update
-    session['skip_clear_once'] = True
     return redirect(url_for('index'))
     
     # GET request - display the page with all records
     try:
         conn = get_db_connection()
-        # If CLEAR_MODE is always, clear unless we're returning from a POST redirect in this session
+        # Fresh-per-browser: on first GET in a new browser session, clear then mark as seen
         if CLEAR_MODE == 'always':
-            if session.get('skip_clear_once'):
-                session.pop('skip_clear_once', None)
-            else:
+            if not session.get('seen'):  # first visit in this browser
                 maybe_clear_records(conn)
+                session['seen'] = True
         cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
         cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
         rows = cursor.fetchall()
@@ -263,7 +260,10 @@ def index():
         records = []
         flash(f'Error loading records: {str(e)}')
     
-    return render_template('index.html', records=records)
+    resp = app.make_response(render_template('index.html', records=records))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 # Initialize database on first import
 try:

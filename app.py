@@ -149,19 +149,15 @@ def index():
                 formatted_time = format_time_12hr(current_time)
                 flash(f'Success: {active_session["name"]} clocked out at {formatted_time}')
 
-    # Prevent immediate clearing on the redirected GET so user sees the update
-    session['skip_clear_once'] = True
     conn.close()
     return redirect(url_for('index'))
     
     # GET request - display the page with all records
     conn = get_db_connection()
-    # If CLEAR_MODE is always, clear unless we're returning from a POST redirect in this session
-    if CLEAR_MODE == 'always':
-        if session.get('skip_clear_once'):
-            session.pop('skip_clear_once', None)
-        else:
-            maybe_clear_records(conn)
+    # Fresh-per-browser: on first GET in a new browser session, clear then mark as seen
+    if CLEAR_MODE == 'always' and not session.get('seen'):
+        maybe_clear_records(conn)
+        session['seen'] = True
     records = conn.execute(
         'SELECT * FROM attendance ORDER BY date DESC, clock_in DESC'
     ).fetchall()
