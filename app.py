@@ -154,8 +154,6 @@ def index():
     
     # GET request - display the page with all records
     conn = get_db_connection()
-    if CLEAR_MODE == 'always':
-        maybe_clear_records(conn)
     records = conn.execute(
         'SELECT * FROM attendance ORDER BY date DESC, clock_in DESC'
     ).fetchall()
