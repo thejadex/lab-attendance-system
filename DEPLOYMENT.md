@@ -31,7 +31,14 @@ In your Vercel dashboard:
 DATABASE_URL = your_postgresql_connection_string
 SECRET_KEY = a-random-secret-key-for-flask-sessions
 FLASK_ENV = production
+CLEAR_MODE = always
 ```
+
+### CLEAR_MODE behavior
+- `always`: Wipe all attendance rows on every new clock-in (stateless, good for demo/testing)
+- `per_day` (default): Wipe records when a new day begins (first clock-in of a new day)
+
+On Vercel, set `CLEAR_MODE=always` if you do not want records to persist.
 
 ## 3. Project Structure
 
