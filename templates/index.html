@@ -120,10 +120,18 @@
             margin-bottom: 20px;
         }
         
+        .records-scroll {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 8px;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
             font-size: 14px;
+            min-width: 600px; /* allow horizontal scroll on narrow screens */
         }
         
         th {
@@ -205,29 +213,31 @@
         <h2>All Records</h2>
         
         {% if records %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Matric No.</th>
-                        <th>Name</th>
-                        <th>Date</th>
-                        <th>Clock In</th>
-                        <th>Clock Out</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for record in records %}
-                    <tr>
-                        <td>{{ record.matric_no }}</td>
-                        <td>{{ record.name }}</td>
-                        <td>{{ record.date }}</td>
-                        <!-- Format times in 12-hour format -->
-                        <td>{{ record.clock_in|format_time_12hr }}</td>
-                        <td>{{ record.clock_out|format_time_12hr if record.clock_out else '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div class="records-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Matric No.</th>
+                            <th>Name</th>
+                            <th>Date</th>
+                            <th>Clock In</th>
+                            <th>Clock Out</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for record in records %}
+                        <tr>
+                            <td>{{ record.matric_no }}</td>
+                            <td>{{ record.name }}</td>
+                            <td>{{ record.date }}</td>
+                            <!-- Format times in 12-hour format -->
+                            <td>{{ record.clock_in|format_time_12hr }}</td>
+                            <td>{{ record.clock_out|format_time_12hr if record.clock_out else '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         {% else %}
             <p class="no-records">No records yet</p>
         {% endif %}
