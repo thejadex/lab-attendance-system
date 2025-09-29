@@ -108,6 +108,36 @@ def format_time_12hr(time_str):
 
 app.jinja_env.filters['format_time_12hr'] = format_time_12hr
 
+# Clearing behavior: CLEAR_MODE can be 'always' or 'per_day' (default 'per_day')
+CLEAR_MODE = os.environ.get('CLEAR_MODE', 'per_day').strip().lower()
+
+def maybe_clear_records(conn):
+    """Clear attendance records based on CLEAR_MODE.
+    - 'always': clear all records on every new clock_in
+    - 'per_day': if any existing record is not for today, clear all before starting a new day
+    """
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        cur = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
+        if CLEAR_MODE == 'always':
+            cur.execute('DELETE FROM attendance')
+            conn.commit()
+            cur.close()
+            return
+        elif CLEAR_MODE == 'per_day':
+            # Check if there are records from a previous day
+            cur.execute('SELECT date FROM attendance ORDER BY id DESC LIMIT 1')
+            row = cur.fetchone()
+            if row:
+                last_date = row['date'] if isinstance(row, dict) else row[0]
+                if last_date != today:
+                    cur.execute('DELETE FROM attendance')
+                    conn.commit()
+            cur.close()
+    except Exception as e:
+        # Don't block attendance on clear errors
+        print(f"maybe_clear_records error: {e}")
+
 @app.route('/health')
 def health():
     return 'ok', 200
@@ -130,6 +160,8 @@ def index():
         
         try:
             conn = get_db_connection()
+            # Clear records if needed before starting a new session
+            maybe_clear_records(conn)
             cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
 
             if action == 'clock_in':
