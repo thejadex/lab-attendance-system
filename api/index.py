@@ -241,6 +241,9 @@ def index():
     # GET request - display the page with all records
     try:
         conn = get_db_connection()
+        # Clear on GET if CLEAR_MODE is always
+        if CLEAR_MODE == 'always':
+            maybe_clear_records(conn)
         cursor = conn.cursor(row_factory=dict_row) if (USE_POSTGRES and USE_PG3) else conn.cursor()
         cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
         rows = cursor.fetchall()
