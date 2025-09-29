@@ -5,6 +5,7 @@ A minimal Flask application for tracking student clock in/out times
 
 from flask import Flask, render_template, request, redirect, url_for, flash
 import os
+import sqlite3
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
@@ -17,40 +18,57 @@ app.secret_key = os.environ.get('SECRET_KEY', 'fallback-secret-key-change-in-pro
 
 # Database connection using environment variable
 DATABASE_URL = os.environ.get('DATABASE_URL')
+USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')))
 
 def get_db_connection():
-    """Create a database connection using PostgreSQL"""
-    if not DATABASE_URL:
-        raise Exception("DATABASE_URL environment variable not set")
-    
-    # Parse the database URL
-    url = urllib.parse.urlparse(DATABASE_URL)
-    
-    conn = psycopg2.connect(
-        host=url.hostname,
-        port=url.port,
-        database=url.path[1:],  # Remove leading slash
-        user=url.username,
-        password=url.password,
-        cursor_factory=RealDictCursor
-    )
-    return conn
+    """Create a database connection.
+    - If DATABASE_URL provided, use PostgreSQL
+    - Else, fallback to SQLite at /tmp/attendance.db (ephemeral on Vercel)
+    """
+    if USE_POSTGRES:
+        url = urllib.parse.urlparse(DATABASE_URL)
+        conn = psycopg2.connect(
+            host=url.hostname,
+            port=url.port,
+            database=url.path[1:],  # Remove leading slash
+            user=url.username,
+            password=url.password,
+            cursor_factory=RealDictCursor
+        )
+        return conn
+    else:
+        db_path = '/tmp/attendance.db'
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def init_db():
     """Initialize the database with the attendance table"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS attendance (
-                id SERIAL PRIMARY KEY,
-                matric_no TEXT NOT NULL,
-                name TEXT NOT NULL,
-                date TEXT NOT NULL,
-                clock_in TEXT NOT NULL,
-                clock_out TEXT
-            )
-        ''')
+        if USE_POSTGRES:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attendance (
+                    id SERIAL PRIMARY KEY,
+                    matric_no TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    clock_in TEXT NOT NULL,
+                    clock_out TEXT
+                )
+            ''')
+        else:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attendance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    matric_no TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    clock_in TEXT NOT NULL,
+                    clock_out TEXT
+                )
+            ''')
         conn.commit()
         cursor.close()
         conn.close()
@@ -88,55 +106,84 @@ def index():
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            
+
             if action == 'clock_in':
                 # Check if student already has an active session (clocked in but not out)
-                cursor.execute(
-                    'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
-                    (matric_no,)
-                )
+                if USE_POSTGRES:
+                    cursor.execute(
+                        'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
+                        (matric_no,)
+                    )
+                else:
+                    cursor.execute(
+                        'SELECT * FROM attendance WHERE matric_no = ? AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
+                        (matric_no,)
+                    )
                 active_session = cursor.fetchone()
-                
+
                 if active_session:
+                    # Note: sqlite3.Row is dict-like; psycopg2 RealDictCursor returns dict
                     flash(f'Error: {matric_no} is already clocked in. Please clock out first.')
                 else:
                     # Create new attendance record
                     current_date = datetime.now().strftime('%Y-%m-%d')
                     current_time = datetime.now().strftime('%H:%M:%S')
-                    
-                    cursor.execute(
-                        'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (%s, %s, %s, %s)',
-                        (matric_no, name, current_date, current_time)
-                    )
+
+                    if USE_POSTGRES:
+                        cursor.execute(
+                            'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (%s, %s, %s, %s)',
+                            (matric_no, name, current_date, current_time)
+                        )
+                    else:
+                        cursor.execute(
+                            'INSERT INTO attendance (matric_no, name, date, clock_in) VALUES (?, ?, ?, ?)',
+                            (matric_no, name, current_date, current_time)
+                        )
                     conn.commit()
                     formatted_time = format_time_12hr(current_time)
                     flash(f'Success: {name} clocked in at {formatted_time}')
-            
+
             elif action == 'clock_out':
                 # Find the active session for this student
-                cursor.execute(
-                    'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
-                    (matric_no,)
-                )
+                if USE_POSTGRES:
+                    cursor.execute(
+                        'SELECT * FROM attendance WHERE matric_no = %s AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
+                        (matric_no,)
+                    )
+                else:
+                    cursor.execute(
+                        'SELECT * FROM attendance WHERE matric_no = ? AND clock_out IS NULL ORDER BY id DESC LIMIT 1',
+                        (matric_no,)
+                    )
                 active_session = cursor.fetchone()
-                
+
                 if not active_session:
                     flash(f'Error: {matric_no} has not clocked in yet.')
                 else:
                     # Update the record with clock out time
                     current_time = datetime.now().strftime('%H:%M:%S')
-                    
-                    cursor.execute(
-                        'UPDATE attendance SET clock_out = %s WHERE id = %s',
-                        (current_time, active_session['id'])
-                    )
+
+                    if USE_POSTGRES:
+                        rec_id = active_session['id']
+                        rec_name = active_session['name']
+                        cursor.execute(
+                            'UPDATE attendance SET clock_out = %s WHERE id = %s',
+                            (current_time, rec_id)
+                        )
+                    else:
+                        rec_id = active_session['id'] if isinstance(active_session, dict) else active_session['id']
+                        rec_name = active_session['name'] if isinstance(active_session, dict) else active_session['name']
+                        cursor.execute(
+                            'UPDATE attendance SET clock_out = ? WHERE id = ?',
+                            (current_time, rec_id)
+                        )
                     conn.commit()
                     formatted_time = format_time_12hr(current_time)
-                    flash(f'Success: {active_session["name"]} clocked out at {formatted_time}')
-            
+                    flash(f'Success: {rec_name} clocked out at {formatted_time}')
+
             cursor.close()
             conn.close()
-            
+
         except Exception as e:
             flash(f'Database error: {str(e)}')
         
@@ -146,8 +193,14 @@ def index():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
-        records = cursor.fetchall()
+        if USE_POSTGRES:
+            cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
+            records = cursor.fetchall()
+        else:
+            cursor.execute('SELECT * FROM attendance ORDER BY date DESC, clock_in DESC')
+            rows = cursor.fetchall()
+            # Convert sqlite3.Row to dict-like for template compatibility
+            records = [dict(row) for row in rows]
         cursor.close()
         conn.close()
     except Exception as e:
@@ -163,6 +216,4 @@ except:
     # Ignore initialization errors in serverless environment
     pass
 
-# Vercel handler
-def handler(request):
-    return app(request.environ, lambda status, headers: None)
+# No custom handler needed; Vercel detects the Flask `app` WSGI application
